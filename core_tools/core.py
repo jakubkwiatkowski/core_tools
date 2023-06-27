@@ -81,6 +81,11 @@ def dict_from_list(keys=None, values=None) -> Dict:
         values = dict(zip(keys[:len(lw(values))], lw(values)))
     return values
 
+def dict_from_list2(keys, values=None):
+    if values is None:
+        values = list(range(len(keys)))
+    return dict(zip(keys[:len(lw(values))], lw(values)))
+
 
 def flatten_return(*args):
     result = []
@@ -105,6 +110,43 @@ class OverrideDict(dict):
 class PassDict(OverrideDict):
     def __missing__(self, key):
         return key
+
+class CalcDict(OverrideDict):
+    def operate(self, other, op, right=False):
+        if not hasattr(other, "__iter__"):
+            other = [other] * len(self)
+        if is_dict(other):
+            other = other.values()
+        it = iter(other)
+        if right:
+            fn = lambda x, y: op(y, x)
+        else:
+            fn = op
+        return CalcDict({k: fn(v, next(it)) for k, v in self.items()})
+
+    def __add__(self, other):
+        return self.operate(other, operator.add)
+
+    def __sub__(self, other):
+        return self.operate(other, operator.sub)
+
+    def __mul__(self, other):
+        return self.operate(other, operator.mul)
+
+    def __truediv__(self, other):
+        return self.operate(other, operator.truediv)
+
+    def __radd__(self, other):
+        return self.operate(other, operator.add, right=True)
+
+    def __rsub__(self, other):
+        return self.operate(other, operator.sub, right=True)
+
+    def __rmul__(self, other):
+        return self.operate(other, operator.mul, right=True)
+
+    def __rtruediv__(self, other):
+        return self.operate(other, operator.truediv, right=True)
 
 
 def get_init(obj):
