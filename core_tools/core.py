@@ -15,7 +15,6 @@ from tensorflow.keras.losses import Loss
 from tensorflow.keras.layers import Layer, Conv2D, Dense, Reshape
 from loguru import logger
 
-
 from tensorflow.keras.layers import Flatten, MaxPooling2D, AveragePooling1D, GlobalMaxPooling2D, \
     GlobalAveragePooling2D, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, BatchNormalization
 
@@ -31,7 +30,6 @@ FIRST = "first"
 LAST = "last"
 FLATTEN = "flatten"
 FLAT = "flat"
-
 
 INPUTS = "inputs"
 INPUT = "input"
@@ -56,8 +54,10 @@ GLOBAL_STORAGE = {
     "flow": []
 }
 
-def intearleave(lists):
+
+def interleave(lists):
     return [val for tup in itertools.zip_longest(*lists) for val in tup]
+
 
 def dict_from_list(keys=None, values=None) -> Dict:
     if values is None:
@@ -72,13 +72,18 @@ def dict_from_list(keys=None, values=None) -> Dict:
         values = dict(zip(keys[:len(lw(values))], lw(values)))
     return values
 
+
 def flatten_return(*args):
     result = []
     for arg in args:
         result.extend(lw(arg, convert_tuple=True))
     return lu(tuple(result))
+
+
 def append_global_flow(x):
     GLOBAL_STORAGE["flow"].append(x)
+
+
 class OverrideDict(dict):
     def to_dict(self):
         # return {k: v for k, v in self.items()}
@@ -86,9 +91,12 @@ class OverrideDict(dict):
 
     def get_fn(self, index):
         return self.__getitem__(index)
+
+
 class PassDict(OverrideDict):
     def __missing__(self, key):
         return key
+
 
 def get_init(obj):
     if inspect.isclass(obj):
@@ -103,6 +111,7 @@ def get_init_dict(obj):
 def get_init_args(obj):
     return list(get_init_dict(obj).keys())
 
+
 def get_args(obj):
     try:
         return list(inspect.signature(obj).parameters.keys())
@@ -110,8 +119,10 @@ def get_args(obj):
         logger.error(f"{e}. Returning 1.")
         return ["arg"]
 
+
 def comp(*args):
     return rcompose(*extract_args(args))
+
 
 def call(fn, x=None):
     if len(get_args(fn)) > 0:
@@ -161,6 +172,7 @@ def test(filters, x=None, str_comp="in"):
 test_all = comp([test, all])
 test_any = comp([test, any])
 
+
 def filter_keys(d, keys, reverse=False, str_comp="=", *args, **kwargs):
     fn = test_any
     if dataclasses.is_dataclass(keys):
@@ -201,8 +213,6 @@ class SafeDict(dict):
 # https://stackoverflow.com/questions/17215400/format-string-unused-named-arguments
 def format_(str_, **kwargs):
     return str_.format_map(SafeDict(**kwargs))
-
-
 
 
 def is_model(obj):
@@ -358,6 +368,8 @@ def get_info(x, length=None, batch=slice(1, None)):
     if is_array(x):
         return shape, get_dtype_str(x)
     return shape
+
+
 def lazy_wrapper(func, default_rf=False):
     def wrapper(*args, rf=default_rf, **kwargs):
         if rf:
@@ -544,7 +556,7 @@ def print_output(a):
 def interleave_layers(model, post=("LN", "LD"), post_no=-1, pre=None, pre_no=0):
     if post is True:
         post = ("LN", "LD")
-    model = list_intearleave(
+    model = interleave(
         [[inter] * (pre_no if pre_no > 0 else len(model) + pre_no) for
          inter in lw(pre)]
         + [model] +
@@ -552,8 +564,12 @@ def interleave_layers(model, post=("LN", "LD"), post_no=-1, pre=None, pre_no=0):
          in
          lw(post)])
     return model
+
+
 dense = partial(Dense, acitvation="relu")
 conv = partial(Conv2D, acitvation="relu")
+
+
 @lazy_wrapper
 def ConvSequential(model, name="conv", last_act="same", if_empty=None, base_class=conv, post=None, post_no=-1,
                    pre=None, pre_no=0, **kwargs):
@@ -579,6 +595,8 @@ def ConvSequential(model, name="conv", last_act="same", if_empty=None, base_clas
 
 
 DenseSequential = partial(ConvSequential, name=None, base_class=dense)
+
+
 def build_layer(layer, **kwargs):
     if isinstance(layer, int):
         new_layer = dense(layer, **kwargs)
@@ -600,8 +618,11 @@ def build_layer(layer, **kwargs):
         new_layer = layer()
     return new_layer
 
+
 def pass_(x):
     return x
+
+
 Pass = lambda: Lambda(pass_, "pass")
 
 
@@ -617,6 +638,8 @@ class SubClassingModel(Model):
 
     def __repr__(self):
         return f"{self.name}: {[getattr(m, 'name', '') for m in getattr(self, 'model', [])]}"
+
+
 class SubClassing(SubClassingModel):
     def call(self, x):
         for layer in self.model:
@@ -629,6 +652,8 @@ class SubClassing(SubClassingModel):
                 else:
                     x = layer(x)
         return x
+
+
 @lazy_wrapper
 def SequentialModel(layers, name=None, add_flatten=True, none_identity=False, trainable=True, base_class=Sequential,
                     **kwargs):
@@ -647,12 +672,15 @@ def SequentialModel(layers, name=None, add_flatten=True, none_identity=False, tr
 
     return base_class(new_layers, name=name) if len(new_layers) > 1 else new_layers[0]
 
+
 def take_element(x, index=0):
     return x[index]
 
 
 def take_from_batch(x, index=0):
     return x[:, index]
+
+
 def Get(index=0, lambda_layer=True, if_batch=False):
     if if_batch:
         take_fn = partial(take_element, index=index)
@@ -686,6 +714,7 @@ POOLING_CORE = {
     FIRST: First,
 }
 POOLING = {**POOLING_CORE, **{k.lower(): v for k, v in POOLING_CORE.items()}}
+
 
 # int - index of input shape
 # str - size of dim
@@ -734,6 +763,7 @@ class IndexReshape(Layer):
 
     def call(self, inputs):
         return self.model(inputs)
+
 
 def Pooling(pooling, *args, show_shape=False, **kwargs):
     if il(pooling):
@@ -834,6 +864,8 @@ MODELS["efs"] = EfficientNetV2S
 MODELS["efm"] = EfficientNetV2M
 MODELS["efl"] = EfficientNetV2L
 MODELS[None] = MODELS["ef"]
+
+
 def get_extractor(
         data=(None, 224, 224, 3),
         batch=True,
@@ -860,6 +892,8 @@ def get_extractor(
             **kwargs
         )
     )
+
+
 class InitialWeight(Layer):
     def __init__(self, initializer="random_normal", name="initialweight", **kwargs):
         super().__init__(name=name, **kwargs)
@@ -877,12 +911,15 @@ class InitialWeight(Layer):
     def call(self, x):
         return self.w
 
+
 def build_model(model, *args, default_model=Model, **kwargs):
     if not is_model(model):
         if not callable(model):
             model = default_model
         model = model(*args, **kwargs)
     return model
+
+
 class InferencePass(Layer):
     def __init__(self, model, print_=False):
         super().__init__()
@@ -895,8 +932,10 @@ class InferencePass(Layer):
         else:
             return lu(args)
 
+
 def Predictor(model=(1000, 1000), output_size=10, last_act=None, **kwargs):
     return DenseSequential(lw(model) + [output_size], last_act=last_act, **kwargs)
+
 
 def rgb(multiples=(1, 1, 1, 3)):
     def fn(x):
