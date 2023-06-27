@@ -9,14 +9,12 @@ from typing import Union, re, Callable
 import numpy as np
 from funcy import rcompose, identity
 import tensorflow as tf
-from keras import Input, Model, Sequential
-from keras.applications import MobileNetV3Small, VGG16, VGG19
-from keras.losses import Loss
-from keras.layers import Layer, Conv2D, Dense, Reshape
+from tensorflow.keras import Input, Model, Sequential
+from tensorflow.keras.applications import MobileNetV3Small, VGG16, VGG19
+from tensorflow.keras.losses import Loss
+from tensorflow.keras.layers import Layer, Conv2D, Dense, Reshape
 from loguru import logger
 
-def intearleave(lists):
-    return [val for tup in itertools.zip_longest(*lists) for val in tup]
 
 from tensorflow.keras.layers import Flatten, MaxPooling2D, AveragePooling1D, GlobalMaxPooling2D, \
     GlobalAveragePooling2D, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, BatchNormalization
@@ -57,6 +55,9 @@ GLOBAL_STORAGE = {
     MODEL_DEPTH: 0,
     "flow": []
 }
+
+def intearleave(lists):
+    return [val for tup in itertools.zip_longest(*lists) for val in tup]
 
 def dict_from_list(keys=None, values=None) -> Dict:
     if values is None:
