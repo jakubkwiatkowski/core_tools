@@ -4,7 +4,7 @@ import functools
 import inspect
 import itertools
 from functools import partial
-from typing import Union, re, Callable
+from typing import Union, re, Callable, Dict
 
 import numpy as np
 from funcy import rcompose, identity
