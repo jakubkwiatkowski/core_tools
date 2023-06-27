@@ -54,6 +54,15 @@ GLOBAL_STORAGE = {
     "flow": []
 }
 
+def il(data):
+    return isinstance(data, (list, tuple))
+
+def extract_args(args):
+    if il(args):
+        if il(args[0]):
+            return tuple(args[0])
+        return tuple(args)
+    return tuple(lw(args))
 
 def interleave(lists):
     return [val for tup in itertools.zip_longest(*lists) for val in tup]
@@ -197,12 +206,6 @@ def filter_init(base_class, *args, **kwargs):
     return base_class(*args, **kwargs)
 
 
-def extract_args(args):
-    if il(args):
-        if il(args[0]):
-            return tuple(args[0])
-        return tuple(args)
-    return tuple(lw(args))
 
 
 class SafeDict(dict):
@@ -225,8 +228,6 @@ def has_attr(obj, attr, empty=False):
     return hasattr(obj, attr) and getattr(obj, attr) is not None
 
 
-def il(data):
-    return isinstance(data, (list, tuple))
 
 
 def lu(data):
