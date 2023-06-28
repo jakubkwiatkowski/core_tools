@@ -1181,6 +1181,23 @@ def model_output(output=PREDICT, return_list=False):
 
     return Lambda(output_fn, name="model_output")
 
+def build_loss(model, *args, **kwargs):
+    # Check if model has already Loss function.
+    if not get_loss(model):
+        last = get_layers(model)[-1]
+        if isinstance(last, KerasMetric):
+            return add_metric(model, *args, **kwargs)
+        else:
+            class_ref = Loss
+        return add_loss(model, *args, **kwargs)
+    return model
+
+def build_dict_loss(model, *args, **kwargs):
+    if isinstance(model, DictModel):
+        model.model = build_loss(model.model, *args, **kwargs)
+    model = build_loss(model, *args, **kwargs)
+    return model
+
 
 def build_trainer(
         model,
