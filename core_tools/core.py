@@ -21,6 +21,7 @@ from tensorflow.keras.layers import Flatten, MaxPooling2D, AveragePooling1D, Glo
     GlobalAveragePooling2D, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, BatchNormalization, LayerNormalization
 
 from core_tools.flatten2d import Flatten2D
+from core_tools import ops as K
 
 MP = "MP"
 AP = "AP"
@@ -63,6 +64,8 @@ GLOBAL_STORAGE = {
     MODEL_DEPTH: 0,
     "flow": []
 }
+
+
 def is_int(obj, bool_=False):
     if not bool_ and isinstance(obj, bool):
         return False
@@ -1012,7 +1015,10 @@ def rgb(multiples=(1, 1, 1, 3)):
 
     return Lambda(fn)
 
+
 build_subclassing2 = partial(SequentialModel, base_class=SubClassing)
+
+
 class Base(Model):
     def __init__(self, model=None, name=None, debug_=False, **kwargs):
         super().__init__(name=name, **kwargs)
@@ -1024,10 +1030,14 @@ class Base(Model):
     def __repr__(self):
         return f"{self.name}: {self.model}"
         # return f"{get_str_name(self)}: {get_str_name(self.model)}"
+
+
 class BatchModel(Base):
 
     def call(self, inputs):
         return K.map_batch(inputs, self.model)
+
+
 class Loss_(Model):
     def __init__(self, lw=1.0, reduction_fn=tf.reduce_mean):
         super().__init__()
@@ -1039,11 +1049,14 @@ class Loss_(Model):
         self.add_loss(loss)
         return loss
 
+
 def add_loss(model, *args, name=None, loss_class=Loss_, filter_=None, **kwargs):
     loss_ = loss_class(*args, **kwargs)
     if filter_:
         loss_ = filter_(loss_)
     return SubClassing([model, loss_], name=name)
+
+
 class FilterList(Model):
     def __init__(self, model, index=None):
         super().__init__()
@@ -1054,10 +1067,15 @@ class FilterList(Model):
     def call(self, inputs):
         result = self.model(self.filter_(inputs))
         return replace_at_index2(inputs, self.index, result)
+
+
 def predict(x):
     return tf.argmax(x, axis=-1)
+
+
 def Predict():
     return Lambda(lambda x: predict(x))
+
 
 def list_to_dict(x, name="output"):
     return {n: x[i] for i, n in enumerate(name)}
@@ -1083,6 +1101,8 @@ class DictModel(Base):
         result = self.model(lu(x))
         # todo create dict only from tuple, not list
         return {**inputs, **list_to_dict(lw(result), name=self.output_name)}
+
+
 class Trainer(Model, KerasModelHubMixin):
     def __init__(
             self,
@@ -1135,6 +1155,7 @@ class Trainer(Model, KerasModelHubMixin):
     def export(self, *args, only_inference=True, **kwargs):
         self.save(*args, only_inference=only_inference, **kwargs)
 
+
 def model_output(output=PREDICT, return_list=False):
     if callable(output):
         output_fn = output
@@ -1159,6 +1180,7 @@ def model_output(output=PREDICT, return_list=False):
                 return filter_keys(x, output)
 
     return Lambda(output_fn, name="model_output")
+
 
 def build_trainer(
         model,
@@ -1215,7 +1237,9 @@ def build_trainer(
     # return losses, model, output, predict
     return model, losses, predict, output
 
+
 bm = SequentialModel
+
 
 class TakeDict:
     def __init__(self, data):
@@ -1225,7 +1249,8 @@ class TakeDict:
 
     def __getitem__(self, item):
         return self.fn(self.data, item)
-    
+
+
 REGULARIZATION_CORE = {
     BN: lambda *args, **kwargs: BatchNormalization(*args, **kwargs),
     LN: lambda epsilon=1e-6, *args, **kwargs: LayerNormalization(epsilon=epsilon, *args, **kwargs),  # epsilon=1e-6

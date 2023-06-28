@@ -1,5 +1,4 @@
 import tensorflow as tf
-from core_tools.core import il, lw
 from tensorflow.keras.layers import Layer
 import math
 from functools import partial
@@ -7,6 +6,18 @@ from functools import partial
 from core_tools import ops as K
 from core_tools.ops import take
 
+def il(data):
+    return isinstance(data, (list, tuple))
+def lw(data, none_empty="remove_none", convert_tuple=True):
+    if isinstance(data, list):
+        if none_empty == "remove_none":
+            return [d for d in data if d is not None]
+        return data
+    elif isinstance(data, tuple) and convert_tuple:
+        return list(data)
+    if none_empty and data is None:
+        return []
+    return [data]
 
 class DivideDim(Layer):
     def __init__(self, model, axis=1, root=2, row=None, replace_first=-1):
