@@ -12,6 +12,7 @@ from funcy import rcompose, identity
 import tensorflow as tf
 from tensorflow.keras import Input, Model, Sequential
 from tensorflow.keras.applications import MobileNetV3Small, VGG16, VGG19
+from tensorflow.keras.metrics import Metric as KerasMetric
 from tensorflow.keras.losses import Loss
 from tensorflow.keras.layers import Layer, Conv2D, Dense, Reshape
 from loguru import logger
@@ -58,12 +59,70 @@ AUTO = "auto"
 AUGMENTATION = "augmentation"
 CROSS_ENTROPY = "cross_entropy"
 ACC = "acc"
+DICT = "dict"
+LIST = "list"
+COUNT = "count"
 
 MODEL_DEPTH = "model_depth"
 GLOBAL_STORAGE = {
     MODEL_DEPTH: 0,
     "flow": []
 }
+def get_config(model, mode=None, parent=""):
+    def run_func(func):
+        if "parent" in get_args(func):
+            return func(model, parent)
+        else:
+            return func(model)
+
+    if isinstance(mode, str):
+        return [getattr(model, mode, None)]
+    elif callable(mode):
+        return run_func(mode)
+    elif isinstance(mode, list):
+
+        return [dict((m[0], run_func(m[1])) if isinstance(m, tuple) else (m, getattr(model, m, None))
+                     for m in mode)]
+    else:
+        return [model]
+
+
+def is_builtin_class_instance(obj):
+    return obj.__class__.__module__ == 'builtins'
+
+
+def is_builtin(obj):
+    return is_builtin_class_instance(obj) and not callable(obj)
+
+def convert_to_number(obj):
+    try:
+        return int(obj)
+    except:
+        try:
+            return float(obj)
+        except:
+            return obj
+
+def get_str_name(obj, convert_numbers=True, mode="name", sign=False):
+    if isinstance(obj, partial):
+        return get_str_name(obj.func)
+    if convert_numbers:
+        obj = convert_to_number(obj)
+    if is_builtin(obj):
+        return str(obj)
+
+    elif not hasattr(obj, "__name__"):
+        obj = obj.__class__
+    if mode == "name":
+        name = f"{obj.__name__}"
+    elif mode == "module":
+        name = f"{obj.__module__}"
+    else:
+        name = f"{obj.__module__}.{obj.__name__}"
+
+    if sign:
+        return f"@{name}"
+    return name
 
 
 def is_int(obj, bool_=False):
@@ -1180,6 +1239,72 @@ def model_output(output=PREDICT, return_list=False):
                 return filter_keys(x, output)
 
     return Lambda(output_fn, name="model_output")
+
+def get_layers(model, mode=None, summary=False, filter_=None, hierarchial=False, name_fn=False, parent="",
+               omit="append"):
+    if not callable(name_fn):
+        name_fn = identity
+    layers = {} if hierarchial in [DICT, COUNT] else []
+    name = ""
+    # todo probably no longer need
+    while not has_attr(model, "layers", empty=True) and has_attr(model, "model", empty=True):
+        model = model.model
+        name = f"{model.name if has_attr(model, name) else 'lw'}/"
+    if has_attr(model, "layers", empty=True):
+        if summary:
+            model.summary()
+        for layer in model.layers:
+            layer_result = get_layers(
+                layer, mode, summary, filter_, hierarchial,
+                name_fn=name_fn,
+                omit=omit,
+                parent=f"{parent}/{get_str_name(model)}"
+            )
+            if omit != "append":
+                if callable(omit):
+                    if omit(layer_result):
+                        continue
+                else:
+                    if layer_result in lw(omit):
+                        continue
+            if hierarchial == DICT:
+                layers.update({f"{name}{name_fn(layer.name)}": layer_result})
+            elif hierarchial == COUNT:
+                name_ = name_fn(layer.name)
+                if name_ in layers:
+                    layers_group = [k for k, v in layers.items() if k.startswith(name_)]
+                    layers_group = sort_by_number(layers_group)
+                    numbers = [last_number(l, conversion="force_int", retrun_if_none=0) for l in layers_group]
+                    number = sorted(numbers, reverse=True)[0]
+                    if number:
+                        number += 1
+                    else:
+                        number = 2
+                    name_ = f"{name_}_{number}"
+                layers.update({f"{name}{name_}": layer_result})
+            elif hierarchial == LIST:
+                layers.append([f"{name}{name_fn(layer.name)}", layer_result])
+            elif hierarchial:
+                layers.append(layer_result)
+            else:
+                layers.extend(layer_result)
+    else:
+        # todo Change to test from ml_utils.
+        if filter_:
+            if isinstance(filter_, str) and not re.compile(filter_).findall(model.name):
+                return []
+            elif callable(filter_) and not filter_(model):
+                return []
+            # elif isinstance(filter_, list) and model.name not in filter_:
+            # todo Also for exact names.
+            elif il(filter_) and not any(re.compile(f).match(model.name) for f in filter_):
+                return []
+
+        return get_config(model, mode, parent)
+    return layers
+
+def get_loss(model):
+    return get_layers(model, filter_=lambda x: isinstance(x, Loss_))
 
 def build_loss(model, *args, **kwargs):
     # Check if model has already Loss function.
