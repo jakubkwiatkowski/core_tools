@@ -2,6 +2,7 @@ import collections
 import dataclasses
 import functools
 import inspect
+import operator
 import itertools
 from functools import partial
 from typing import Union, re, Callable, Dict
@@ -14,9 +15,10 @@ from tensorflow.keras.applications import MobileNetV3Small, VGG16, VGG19
 from tensorflow.keras.losses import Loss
 from tensorflow.keras.layers import Layer, Conv2D, Dense, Reshape
 from loguru import logger
+from huggingface_hub import KerasModelHubMixin
 
 from tensorflow.keras.layers import Flatten, MaxPooling2D, AveragePooling1D, GlobalMaxPooling2D, \
-    GlobalAveragePooling2D, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, BatchNormalization
+    GlobalAveragePooling2D, GlobalMaxPooling1D, GlobalAveragePooling1D, Lambda, BatchNormalization, LayerNormalization
 
 from core_tools.flatten2d import Flatten2D
 
@@ -30,6 +32,8 @@ FIRST = "first"
 LAST = "last"
 FLATTEN = "flatten"
 FLAT = "flat"
+BN = "BN"
+LN = "LN"
 
 INPUTS = "inputs"
 INPUT = "input"
@@ -47,15 +51,36 @@ LATENTS = "latents"
 RECONSTRUCTION = "reconstruction"
 LOSS = "loss"
 ATTENTION = "attention"
+METRIC = "metric"
+METRICS = "metrics"
+AUTO = "auto"
+AUGMENTATION = "augmentation"
+CROSS_ENTROPY = "cross_entropy"
+ACC = "acc"
 
 MODEL_DEPTH = "model_depth"
 GLOBAL_STORAGE = {
     MODEL_DEPTH: 0,
     "flow": []
 }
+def is_int(obj, bool_=False):
+    if not bool_ and isinstance(obj, bool):
+        return False
+    return isinstance(obj, (int, np.integer))
+    # return issubclass(type(obj),int)
+
+
+def is_float(obj):
+    return isinstance(obj, (float, np.floating))
+
+
+def is_num(obj, bool_=False):
+    return is_int(obj, bool_) or is_float(obj)
+
 
 def il(data):
     return isinstance(data, (list, tuple))
+
 
 def extract_args(args):
     if il(args):
@@ -63,6 +88,7 @@ def extract_args(args):
             return tuple(args[0])
         return tuple(args)
     return tuple(lw(args))
+
 
 def interleave(lists):
     return [val for tup in itertools.zip_longest(*lists) for val in tup]
@@ -80,6 +106,7 @@ def dict_from_list(keys=None, values=None) -> Dict:
     if not isinstance(values, dict):
         values = dict(zip(keys[:len(lw(values))], lw(values)))
     return values
+
 
 def dict_from_list2(keys, values=None):
     if values is None:
@@ -110,6 +137,7 @@ class OverrideDict(dict):
 class PassDict(OverrideDict):
     def __missing__(self, key):
         return key
+
 
 class CalcDict(OverrideDict):
     def operate(self, other, op, right=False):
@@ -248,8 +276,6 @@ def filter_init(base_class, *args, **kwargs):
     return base_class(*args, **kwargs)
 
 
-
-
 class SafeDict(dict):
     def __missing__(self, key):
         return '{' + key + '}'
@@ -268,8 +294,6 @@ def has_attr(obj, attr, empty=False):
     if empty:
         return hasattr(obj, attr) and getattr(obj, attr)
     return hasattr(obj, attr) and getattr(obj, attr) is not None
-
-
 
 
 def lu(data):
@@ -609,8 +633,8 @@ def interleave_layers(model, post=("LN", "LD"), post_no=-1, pre=None, pre_no=0):
     return model
 
 
-dense = partial(Dense, acitvation="relu")
-conv = partial(Conv2D, acitvation="relu")
+dense = partial(Dense, activation="relu")
+conv = partial(Conv2D, activation="relu")
 
 
 @lazy_wrapper
@@ -621,13 +645,15 @@ def ConvSequential(model, name="conv", last_act="same", if_empty=None, base_clas
     for i, m in enumerate(lw(model)):
         if is_model(m):
             layers.append(m)
+        elif isinstance(m, str):
+            layers.append(REGULARIZATION[m]())
         else:
             if not isinstance(m, dict):
                 params = dict_from_list(get_init_args(base_class), lw(m))
             else:
                 params = m
             if last_act != "same" and i == len(lw(model)) - 1:
-                params = {**kwargs, "acitvation": last_act, **params}
+                params = {**kwargs, "activation": last_act, **params}
             else:
                 params = {**kwargs, **params}
 
@@ -985,3 +1011,243 @@ def rgb(multiples=(1, 1, 1, 3)):
         return tf.tile(x, multiples=multiples)
 
     return Lambda(fn)
+
+build_subclassing2 = partial(SequentialModel, base_class=SubClassing)
+class Base(Model):
+    def __init__(self, model=None, name=None, debug_=False, **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.model = build_subclassing2(model)
+
+    def call(self, inputs):
+        return K.map_(inputs, self.model)
+
+    def __repr__(self):
+        return f"{self.name}: {self.model}"
+        # return f"{get_str_name(self)}: {get_str_name(self.model)}"
+class BatchModel(Base):
+
+    def call(self, inputs):
+        return K.map_batch(inputs, self.model)
+class Loss_(Model):
+    def __init__(self, lw=1.0, reduction_fn=tf.reduce_mean):
+        super().__init__()
+        self.lw = lw
+        self.reduction_fn = reduction_fn
+
+    def call(self, inputs):
+        loss = self.lw * self.reduction_fn(inputs)
+        self.add_loss(loss)
+        return loss
+
+def add_loss(model, *args, name=None, loss_class=Loss_, filter_=None, **kwargs):
+    loss_ = loss_class(*args, **kwargs)
+    if filter_:
+        loss_ = filter_(loss_)
+    return SubClassing([model, loss_], name=name)
+class FilterList(Model):
+    def __init__(self, model, index=None):
+        super().__init__()
+        self.model = model
+        self.index = index
+        self.filter_ = Get(index, if_batch=True)
+
+    def call(self, inputs):
+        result = self.model(self.filter_(inputs))
+        return replace_at_index2(inputs, self.index, result)
+def predict(x):
+    return tf.argmax(x, axis=-1)
+def Predict():
+    return Lambda(lambda x: predict(x))
+
+def list_to_dict(x, name="output"):
+    return {n: x[i] for i, n in enumerate(name)}
+
+
+def dict_to_list(x, name="output"):
+    return [x[n] for n in name]
+
+
+# dict -> list
+class DictModel(Base):
+    # model - list model
+    def __init__(self, model, in_=OUTPUT, out=OUTPUT, name=None, debug_=False, **kwargs):
+        if name is None:
+            name = f"{'_'.join(lw(in_))}__{'_'.join(lw(out))}"
+            # name = f"({','.join(lw(inputs))})({','.join(lw(outputs))}"
+        super().__init__(model=model, name=name, debug_=debug_, **kwargs)
+        self.input_name = lw(in_)
+        self.output_name = lw(out)
+
+    def call(self, inputs):
+        x = dict_to_list(inputs, name=self.input_name)
+        result = self.model(lu(x))
+        # todo create dict only from tuple, not list
+        return {**inputs, **list_to_dict(lw(result), name=self.output_name)}
+class Trainer(Model, KerasModelHubMixin):
+    def __init__(
+            self,
+            model,
+            loss=None,
+            predict=PREDICT,
+            output=None,
+            add_loss=True,
+            model_wrap=True,
+            loss_wrap=True,
+            predict_wrap=True,
+            name=None,
+            **kwargs
+    ):
+        super().__init__()
+        self.model, self.loss_fn, self.predict_fn, self.output_model = build_trainer(
+            model,
+            loss=loss,
+            predict=predict,
+            output=output,
+            add_loss=add_loss,
+            model_wrap=model_wrap,
+            loss_wrap=loss_wrap,
+            predict_wrap=predict_wrap
+        )
+        super().__init__(name=name, **kwargs)
+
+    def call(self, x):
+        for model in lw(self.model):
+            x = model(x)
+        x = self.predict_fn(x)
+        for loss in lw(self.loss_fn):
+            x = loss(x)
+        return self.output_model(x)
+
+    def save(self, filepath="~/tmp/model", *args, only_inference=False, **kwargs):
+        filepath = os.path.expanduser(filepath)
+        # not working
+        # built = False
+        # if only_inference and is_model(self.loss_fn) and self.loss_fn.built:
+        #     bu = self.loss_fn
+        #     self.loss_fn = None
+        if filepath.startswith("hf://"):
+            super().push_to_hub(repo_id=filepath[5:], *args, **kwargs)
+        else:
+            super().save(filepath=filepath, *args, **kwargs)
+        # if only_inference:
+        #     self.loss_fn = loss
+
+    def export(self, *args, only_inference=True, **kwargs):
+        self.save(*args, only_inference=only_inference, **kwargs)
+
+def model_output(output=PREDICT, return_list=False):
+    if callable(output):
+        output_fn = output
+    elif output == "all":
+        if return_list:
+            def output_fn(x):
+                return list(x.values())
+        else:
+            def output_fn(x):
+                return x
+    else:
+        output = lw(output)
+        if return_list:
+            if len(output) == 1:
+                def output_fn(x):
+                    return list(filter_keys(x, output).values())[0]
+            else:
+                def output_fn(x):
+                    return list(filter_keys(x, output).values())
+        else:
+            def output_fn(x):
+                return filter_keys(x, output)
+
+    return Lambda(output_fn, name="model_output")
+
+def build_trainer(
+        model,
+        loss=None,
+        predict=PREDICT,
+        output=None,
+        add_loss=True,
+        model_wrap=True,
+        loss_wrap=True,
+        predict_wrap=True,
+):
+    def check(obj, class_ref, wrap):
+        return isinstance(obj, class_ref) or obj is None or not wrap
+
+    model = [m if check(m, DictModel, model_wrap) else DictModel(m, in_=INPUTS if i == 0 else OUTPUT,
+                                                                 out=OUTPUT, name="model") for i, m in
+             enumerate(lw(model))]
+    if hasattr(model, "output_name"):
+        model_output_name = model[-1].output_name
+    else:
+        model_output_name = OUTPUT
+    model_output_name = lw(model_output_name)
+    predict_input = model_output_name[0]
+    if isinstance(predict, str):
+        if predict == "loss" and hasattr(loss, "predict_fn"):
+            predict = loss.predict_fn
+
+        else:
+            if predict == "loss":
+                logger.warning(f"Predict is set to loss, but {loss} doesn't have predict_fn attribute.")
+            predict_input = predict_input if predict == PREDICT else predict
+            predict = Predict()
+    predict = predict if check(predict, DictModel, predict_wrap) else DictModel(predict,
+                                                                                in_=predict_input,
+                                                                                out=PREDICT,
+                                                                                name="predict")
+    if add_loss:
+        loss = [build_dict_loss(lo) for lo in lw(loss)]
+    losses = []
+    for lo in lw(loss):
+        if check(lo, DictModel, loss_wrap):
+            losses.append(lo)
+        else:
+            class_ref = PassDictModel if isinstance(lo, Model) else DictLayer
+            # todo in case when output_name don't exist add OUTPUT
+            losses.append(class_ref(lo, in_=[TARGET] + model_output_name, out=LOSS, name="loss"))
+    if output is None:
+        if predict is None or not hasattr(predict, "output_name"):
+            output = model_output(model_output_name)
+        else:
+            output = model_output(predict.output_name)
+    elif il(output) or isinstance(output, str):
+        output = model_output(output)
+    # return losses, model, output, predict
+    return model, losses, predict, output
+
+bm = SequentialModel
+
+class TakeDict:
+    def __init__(self, data):
+        super().__init__()
+        self.data = data
+        self.fn = take_dict if is_dict(self.data) else take
+
+    def __getitem__(self, item):
+        return self.fn(self.data, item)
+    
+REGULARIZATION_CORE = {
+    BN: lambda *args, **kwargs: BatchNormalization(*args, **kwargs),
+    LN: lambda epsilon=1e-6, *args, **kwargs: LayerNormalization(epsilon=epsilon, *args, **kwargs),  # epsilon=1e-6
+    # IN: lambda: InstanceNormalization(),
+}
+
+REGULARIZATION = {**REGULARIZATION_CORE, **{k.lower(): v for k, v in POOLING_CORE.items()}}
+
+
+def Regularization(regularization, *args, show_shape=False, **kwargs):
+    if isinstance(regularization, str):
+        if regularization in REGULARIZATION:
+            regularization = REGULARIZATION[regularization](*args, **kwargs)
+        else:
+            regularization = Activation(regularization)
+    elif is_model(regularization):
+        pass
+    elif callable(regularization):
+        regularization = regularization(*args, **kwargs)
+    elif regularization is None:
+        regularization = lambda: Lambda(identity)
+
+    if show_shape:
+        return log_shape(show_shape, "Regularization")(regularization)
+    return regularization
