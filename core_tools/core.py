@@ -2,6 +2,7 @@ import collections
 import dataclasses
 import functools
 import inspect
+import copy
 import operator
 import itertools
 from functools import partial
@@ -1418,3 +1419,32 @@ def Regularization(regularization, *args, show_shape=False, **kwargs):
     if show_shape:
         return log_shape(show_shape, "Regularization")(regularization)
     return regularization
+
+
+def as_dict_inner(obj, dict_factory=dict):
+    if dataclasses.is_dataclass(obj):
+        result = []
+        for f in obj.__dict__:
+            value = as_dict_inner(getattr(obj, f), dict_factory)
+            result.append((f, value))
+        return dict_factory(result)
+    elif isinstance(obj, tuple) and hasattr(obj, '_fields'):
+
+        return type(obj)(*[as_dict_inner(v, dict_factory) for v in obj])
+    elif isinstance(obj, (list, tuple)):
+        return type(obj)(as_dict_inner(v, dict_factory) for v in obj)
+    elif isinstance(obj, dict):
+        return type(obj)((as_dict_inner(k, dict_factory),
+                          as_dict_inner(v, dict_factory))
+                         for k, v in obj.items())
+    else:
+        return copy.deepcopy(obj)
+
+
+# todo Get properties.
+def as_dict(x, *args, **kwargs):
+    if dataclasses.is_dataclass(x):
+        x = as_dict_inner(x, *args, **kwargs)
+    elif x is None:
+        return {}
+    return x
