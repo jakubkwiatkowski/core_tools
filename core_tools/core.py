@@ -15,7 +15,7 @@ from tensorflow.keras import Input, Model, Sequential
 from tensorflow.keras.applications import MobileNetV3Small, VGG16, VGG19
 from tensorflow.keras.metrics import Metric as KerasMetric
 from tensorflow.keras.losses import Loss
-from tensorflow.keras.layers import Layer, Conv2D, Dense, Reshape
+from tensorflow.keras.layers import Layer, Conv2D, Dense, Reshape, Dropout
 from loguru import logger
 from huggingface_hub import KerasModelHubMixin
 
@@ -1398,6 +1398,8 @@ REGULARIZATION_CORE = {
     BN: lambda *args, **kwargs: BatchNormalization(*args, **kwargs),
     LN: lambda epsilon=1e-6, *args, **kwargs: LayerNormalization(epsilon=epsilon, *args, **kwargs),  # epsilon=1e-6
     # IN: lambda: InstanceNormalization(),
+    "D": lambda rate=0.1: Dropout(rate),
+    "LD": lambda rate=0.1: Dropout(rate),
 }
 
 REGULARIZATION = {**REGULARIZATION_CORE, **{k.lower(): v for k, v in POOLING_CORE.items()}}
